@@ -1,13 +1,15 @@
 import https from 'https';
 
-// Điền trực tiếp Token hoặc cấu hình Environment Variable trên Vercel
 const BOT_TOKEN = process.env.ZALO_BOT_TOKEN || '1154617076666341503:qQzVddBnvYwiWZaRrmYaPpDDsPKOlLwiTwJYYgHTJVCTwOTmcRYlkPLKRtsxsHbe';
 
 function sendZaloMessage(chatId, text) {
-  if (!BOT_TOKEN) return;
+  if (!BOT_TOKEN || !chatId) {
+    console.error('Thiếu BOT_TOKEN hoặc chatId:', { chatId });
+    return;
+  }
 
   const payload = JSON.stringify({
-    chat_id: chatId,
+    chat_id: String(chatId),
     text: text
   });
 
@@ -23,30 +25,39 @@ function sendZaloMessage(chatId, text) {
   };
 
   const req = https.request(options, (res) => {
-    let body = '';
-    res.on('data', chunk => body += chunk);
-    res.on('end', () => console.log('Zalo Response:', body));
+    let resBody = '';
+    res.on('data', chunk => resBody += chunk);
+    res.on('end', () => {
+      console.log('Phản hồi từ Zalo API:', res.statusCode, resBody);
+    });
   });
 
-  req.on('error', (err) => console.error('Gửi tin nhắn thất bại:', err));
+  req.on('error', (err) => console.error('Lỗi khi gửi sang Zalo:', err));
   req.write(payload);
   req.end();
 }
 
 export default async function handler(req, res) {
-  // Trả về khi Vercel hoặc Zalo ping kiểm tra server
   if (req.method === 'GET') {
-    return res.status(200).send('Webhook bot-token-zl đang chạy!');
+    return res.status(200).send('Webhook server botzalo is running!');
   }
 
   if (req.method === 'POST') {
     try {
       const data = req.body || {};
-      
-      // Bóc tách chat_id và nội dung tin nhắn gửi đến
-      const message = data.message || data;
-      const chatId = message?.chat?.id || data?.sender?.id || message?.from?.id;
-      const rawText = (message?.text || '').trim();
+      console.log('Dữ liệu Zalo gửi tới:', JSON.stringify(data));
+
+      // Bóc tách chatId và Text linh hoạt theo cấu trúc Zalo Bot
+      const chatId = data?.message?.chat?.id 
+                  || data?.chat_id 
+                  || data?.sender?.id 
+                  || data?.message?.from?.id 
+                  || data?.user_id_by_app 
+                  || data?.from?.id;
+
+      const rawText = (data?.message?.text || data?.text || '').trim();
+
+      console.log(`Nhận lệnh: "${rawText}" từ Chat ID: "${chatId}"`);
 
       if (chatId && rawText) {
         if (rawText === '/hi') {
@@ -58,8 +69,8 @@ export default async function handler(req, res) {
 
       return res.status(200).json({ status: 'ok' });
     } catch (err) {
-      console.error(err);
-      return res.status(200).json({ status: 'error_handled' });
+      console.error('Lỗi xử lý webhook:', err);
+      return res.status(200).json({ error: err.message });
     }
   }
 
